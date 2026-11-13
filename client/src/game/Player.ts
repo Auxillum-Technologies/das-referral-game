@@ -3,11 +3,9 @@
 
 import { Scene } from "@babylonjs/core/scene";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
-import { CreatePlane } from "@babylonjs/core/Meshes/Builders/planeBuilder";
-import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
-import { Texture } from "@babylonjs/core/Materials/Textures/texture";
+import type { ShadowGenerator } from "@babylonjs/core/Lights/Shadows/shadowGenerator";
 import type { InputState } from "./InputManager";
-import { ASSETS } from "./assets";
+import type { CharacterAnimator, CharacterLibrary } from "./hubCharacters";
 
 export const PLAYER_W = 2.4; // world units
 export const PLAYER_H = 4.2;
@@ -16,7 +14,7 @@ const SPEED = 6.8;
 const GRAVITY = -26;
 const JUMP_V = 12.0;
 
-const FRAME_DURATION = 0.09; // authored pixel-art cadence: ~11fps
+const TURN_RATE = 14;
 
 export interface Rect {
   x: number;
@@ -27,15 +25,14 @@ export interface Rect {
 
 export class Player {
   root: TransformNode;
-  private spriteFrame: TransformNode;
+  private model: TransformNode;
+  private animator: CharacterAnimator | null = null;
+  private disposed = false;
   private facing = 1; // 1 = right, -1 = left
+  private heading = Math.PI / 2;
   private vx = 0;
   private vy = 0;
   private onGround = false;
-  private plane: import("@babylonjs/core/Meshes").Mesh;
-  private walkTextures: Texture[] = [];
-  private frameIndex = 0;
-  private animTimer = 0;
   readonly yFloor: number;
 
   constructor(
@@ -43,50 +40,26 @@ export class Player {
     private floors: Rect[],
     startX: number,
     yFloor: number,
+    library?: CharacterLibrary,
+    shadows?: ShadowGenerator,
   ) {
     this.yFloor = yFloor;
     this.root = new TransformNode("playerRoot", scene);
     this.root.position.set(startX, yFloor + PLAYER_H / 2, 5);
 
-    // Idle & walking frame root
-    this.spriteFrame = new TransformNode("playerSprite", scene);
-    this.spriteFrame.parent = this.root;
-
-    // Pre-create all 7 walk cycle textures ONCE for high-performance frame swapping
-    this.walkTextures = ASSETS.doctorWalkFrames.map((url) => {
-      const tex = new Texture(url, scene);
-      tex.hasAlpha = true;
-      tex.updateSamplingMode(Texture.NEAREST_SAMPLINGMODE);
-      return tex;
-    });
-
-    const mat = new StandardMaterial("playerMat", scene);
-    const initialTex = this.walkTextures[0];
-    mat.diffuseTexture = initialTex;
-    mat.emissiveTexture = initialTex;
-    mat.useAlphaFromDiffuseTexture = true;
-    mat.emissiveColor.setAll(1);
-    mat.specularColor.setAll(0);
-    mat.disableLighting = true;
-    mat.backFaceCulling = false;
-
-    const plane = CreatePlane("playerPlane", { size: 1, updatable: true }, scene);
-    // Scaled for crisp proportion matching the hospital beds & nightstands
-    plane.scaling.set(5.2, 6.6, 1);
-    plane.material = mat;
-    plane.parent = this.spriteFrame;
-    // Align visual feet to physics floor
-    plane.position.set(0, 1.2, -0.1);
-    this.plane = plane;
-  }
-
-  /** Changes rendered sprite scale only. Collision body and walk behavior stay unchanged. */
-  setVisualScale(scale: number) {
-    const safeScale = Math.min(Math.max(scale, 0.5), 1.25);
-    const visualHeight = 6.6 * safeScale;
-    this.plane.scaling.set(5.2 * safeScale, visualHeight, 1);
-    // Keep shoes on the authored physics floor after visual-only resizing.
-    this.plane.position.y = visualHeight / 2 - PLAYER_H / 2;
+    // Model origin sits at the feet; physics root sits at body center.
+    this.model = new TransformNode("playerModel", scene);
+    this.model.parent = this.root;
+    this.model.position.y = -PLAYER_H / 2;
+    this.model.rotation.y = this.heading;
+    if (library) {
+      library.spawn("doctor", this.model, shadows)
+        .then((animator) => {
+          if (this.disposed) animator?.dispose();
+          else this.animator = animator;
+        })
+        .catch((error) => console.error("[Player] doctor load failed", error));
+    }
   }
 
   get rect(): Rect {
@@ -104,16 +77,16 @@ export class Player {
     this.vx = 0;
     this.vy = 0;
     this.onGround = true;
-    this.animTimer = 0;
-    this.frameIndex = 0;
-    this.spriteFrame.rotation.z = 0;
-    this.setWalkFrame(0);
+    this.facing = 1;
+    this.heading = Math.PI / 2;
+    this.model.rotation.y = this.heading;
+    this.animator?.play("idle");
   }
 
   update(dt: number, input: InputState, worldMaxX: number, dialogOpen: () => boolean) {
     if (dialogOpen()) {
       this.vx = 0;
-      this.resetAnimationPose();
+      this.animator?.play("idle");
       return;
     }
 
@@ -175,42 +148,16 @@ export class Player {
     if (this.root.position.x < PLAYER_W / 2) this.root.position.x = PLAYER_W / 2;
     if (this.root.position.x > maxX) this.root.position.x = maxX;
 
-    // Sprite frames already contain foot lift, body rise, and stride. Keep the
-    // plane foot-locked instead of adding a second procedural bob/tilt.
-    if (moving && this.onGround) {
-      this.animTimer += dt;
-      while (this.animTimer >= FRAME_DURATION) {
-        this.animTimer -= FRAME_DURATION;
-        this.frameIndex = (this.frameIndex + 1) % this.walkTextures.length;
-      }
-      this.setWalkFrame(this.frameIndex);
-    } else {
-      this.resetAnimationPose();
-    }
-
-    this.spriteFrame.scaling.x = this.facing;
-  }
-
-  /** Swap the material texture across the 7 walk cycle frames */
-  private setWalkFrame(index: number) {
-    if (!this.plane || !this.plane.material || !this.walkTextures[index]) return;
-    const mat = this.plane.material as StandardMaterial;
-    const tex = this.walkTextures[index];
-    if (mat.diffuseTexture === tex) return;
-    mat.diffuseTexture = tex;
-    mat.emissiveTexture = tex;
-  }
-
-  private resetAnimationPose() {
-    this.animTimer = 0;
-    this.frameIndex = 0;
-    this.spriteFrame.position.y = 0;
-    this.spriteFrame.rotation.z = 0;
-    this.setWalkFrame(0);
+    // Turn toward travel direction; walk clip only while grounded and moving.
+    const target = this.facing > 0 ? Math.PI / 2 : -Math.PI / 2;
+    this.heading += (target - this.heading) * Math.min(1, dt * TURN_RATE);
+    this.model.rotation.y = this.heading;
+    this.animator?.play(moving && this.onGround ? "walk" : "idle", moving ? 1.4 : 1);
   }
 
   dispose() {
-    this.spriteFrame.dispose(false, true);
+    this.disposed = true;
+    this.animator?.dispose();
     this.root.dispose(false, true);
   }
 }

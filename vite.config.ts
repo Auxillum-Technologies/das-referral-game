@@ -215,6 +215,10 @@ export default defineConfig({
       "@assets": path.resolve(import.meta.dirname, "attached_assets"),
     },
   },
+  // Pre-bundling duplicated Babylon's ShaderStore, so lazy shaders registered in one copy and lookups fell back to fetching .fx (index.html).
+  optimizeDeps: {
+    exclude: ["@babylonjs/core", "@babylonjs/loaders"],
+  },
   envDir: path.resolve(import.meta.dirname),
   root: path.resolve(import.meta.dirname, "client"),
   build: {

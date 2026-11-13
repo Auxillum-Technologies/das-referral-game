@@ -1,6 +1,10 @@
 import { createRoot } from "react-dom/client";
 import App from "./App";
+import "@fontsource/pixelify-sans/400.css";
+import "@fontsource/pixelify-sans/600.css";
+import "@fontsource/pixelify-sans/700.css";
 import "./index.css";
+import { startPs2TextEffects } from "./lib/ps2-text";
 
 try {
   createRoot(document.getElementById("root")!).render(<App />);
@@ -15,3 +19,5 @@ try {
 } catch {
   /* overlay not present */
 }
+
+startPs2TextEffects();

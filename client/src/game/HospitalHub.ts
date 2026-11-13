@@ -6,16 +6,17 @@ import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight";
 import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Color3, Color4 } from "@babylonjs/core/Maths/math.color";
-import { CreateGround } from "@babylonjs/core/Meshes/Builders/groundBuilder";
 import { CreateBox } from "@babylonjs/core/Meshes/Builders/boxBuilder";
 import { CreatePlane } from "@babylonjs/core/Meshes/Builders/planeBuilder";
-import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
-import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import { DynamicTexture } from "@babylonjs/core/Materials/Textures/dynamicTexture";
 import { Texture } from "@babylonjs/core/Materials/Textures/texture";
 import { levels } from "@/lib/patients";
 import { ASSETS } from "./assets";
+import { ShadowGenerator } from "@babylonjs/core/Lights/Shadows/shadowGenerator";
+import "@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent";
+import { LoadAssetContainerAsync } from "@babylonjs/core/Loading/sceneLoader";
+import { CharacterLibrary, HubDoctor3D, HubNpcs } from "./hubCharacters";
 
 export type HubMoveDirection = "forward" | "backward" | "left" | "right";
 
@@ -100,101 +101,18 @@ class HubInput {
   }
 }
 
-class HubDoctor {
-  readonly root: TransformNode;
-  private plane: Mesh;
-  private material: StandardMaterial;
-  private textureSets: Record<"side" | "front" | "back", Texture[]>;
-  private direction: "side" | "front" | "back" = "side";
-  private frame = 0;
-  private frameTime = 0;
-  private facing = 1;
-
-  constructor(scene: Scene, start: Vector3) {
-    this.root = new TransformNode("hubDoctorRoot", scene);
-    this.root.position.copyFrom(start);
-
-    const loadTextures = (sources: readonly string[]) => sources.map((source) => {
-      const texture = new Texture(source, scene);
-      texture.hasAlpha = true;
-      texture.updateSamplingMode(Texture.NEAREST_SAMPLINGMODE);
-      return texture;
-    });
-    this.textureSets = {
-      side: loadTextures(ASSETS.doctorWalkFrames),
-      front: loadTextures(ASSETS.doctorWalkFrontFrames),
-      back: loadTextures(ASSETS.doctorWalkBackFrames),
-    };
-
-    this.material = new StandardMaterial("hubDoctorMaterial", scene);
-    this.material.diffuseTexture = this.textureSets.side[0];
-    this.material.emissiveTexture = this.textureSets.side[0];
-    this.material.useAlphaFromDiffuseTexture = true;
-    this.material.emissiveColor.setAll(1);
-    this.material.specularColor.setAll(0);
-    this.material.disableLighting = true;
-    this.material.backFaceCulling = false;
-
-    this.plane = CreatePlane("hubDoctor", { width: 3.35, height: 4.55 }, scene);
-    this.plane.parent = this.root;
-    this.plane.position.y = 2.275;
-    this.plane.position.z = 0.05;
-    this.plane.billboardMode = Mesh.BILLBOARDMODE_Y;
-    this.plane.material = this.material;
-  }
-
-  update(dt: number, moving: boolean, horizontalDirection: number, verticalDirection: number) {
-    if (moving) {
-      const nextDirection = Math.abs(verticalDirection) >= Math.abs(horizontalDirection)
-        ? verticalDirection > 0 ? "back" : "front"
-        : "side";
-      if (nextDirection !== this.direction) {
-        this.direction = nextDirection;
-        this.frame = 0;
-        this.frameTime = 0;
-      }
-    }
-    if (this.direction === "side" && horizontalDirection !== 0) this.facing = horizontalDirection > 0 ? 1 : -1;
-
-    const textures = this.textureSets[this.direction];
-    if (moving) {
-      this.frameTime += dt;
-      if (this.frameTime >= 0.075) {
-        this.frameTime = 0;
-        const cycleLength = this.direction === "side" ? textures.length : 4;
-        this.frame = (this.frame + 1) % cycleLength;
-      }
-      const poseIndex = this.direction === "side" ? this.frame : [0, 1, 2, 1][this.frame];
-      this.setTexture(textures[poseIndex]);
-      this.plane.position.y = 2.275 + Math.abs(Math.sin(this.frame * 0.9)) * 0.07;
-    } else {
-      this.frameTime = 0;
-      this.frame = this.direction === "side" ? 0 : 1;
-      this.setTexture(textures[this.frame]);
-      this.plane.position.y = 2.275;
-    }
-    const directionalScale = this.direction === "side" ? 1 : 1.08;
-    this.plane.scaling.x = directionalScale * (this.direction === "side" ? this.facing : 1);
-    this.plane.scaling.y = directionalScale;
-  }
-
-  private setTexture(texture: Texture) {
-    this.material.diffuseTexture = texture;
-    this.material.emissiveTexture = texture;
-  }
-
-  dispose() {
-    Object.values(this.textureSets).flat().forEach((texture) => texture.dispose());
-    this.root.dispose(false, true);
-  }
-}
+const SIGN_FONT = '"Pixelify Sans", monospace';
 
 export class HospitalHub {
   private camera: FreeCamera;
-  private doctor: HubDoctor;
+  private doctor: HubDoctor3D;
+  private npcs: HubNpcs;
+  private library: CharacterLibrary;
+  private shadows: ShadowGenerator;
   private input = new HubInput();
   private nearRoom: number | null = null;
   private entered = false;
+  private disposed = false;
   private disposables: { dispose: () => void }[] = [];
   readonly rooms: HubRoom[];
 
@@ -231,9 +149,16 @@ export class HospitalHub {
     scene.activeCamera = this.camera;
 
     const ambient = new HemisphericLight("hospitalAmbient", new Vector3(0, 1, 0), scene);
-    ambient.intensity = 0.88;
+    ambient.intensity = 1.1;
+    ambient.groundColor = new Color3(0.45, 0.42, 0.38);
     const daylight = new DirectionalLight("hospitalDaylight", new Vector3(-0.35, -1, 0.45), scene);
-    daylight.intensity = 0.5;
+    daylight.position = new Vector3(20, 40, 20);
+    daylight.intensity = 1.6;
+    this.shadows = new ShadowGenerator(1024, daylight);
+    this.shadows.useBlurExponentialShadowMap = true;
+    this.shadows.blurKernel = 16;
+    this.shadows.darkness = 0.45;
+    this.library = new CharacterLibrary(scene);
 
     this.buildHospital();
 
@@ -241,7 +166,8 @@ export class HospitalHub {
     const start = returnRoom
       ? new Vector3(returnRoom.side * 5.2, 0, returnRoom.z - 0.6)
       : new Vector3(0, 0, 3.5);
-    this.doctor = new HubDoctor(scene, start);
+    this.doctor = new HubDoctor3D(scene, start, this.library, this.shadows);
+    this.npcs = new HubNpcs(scene, this.library, this.shadows);
     this.camera.position.copyFrom(start.add(CAMERA_OFFSET));
     this.camera.setTarget(start.add(new Vector3(0, 2.2, 4.5)));
 
@@ -255,40 +181,17 @@ export class HospitalHub {
   }
 
   private buildHospital() {
-    const floorMaterial = this.material("floor", "#d8c9ae");
-    const blueMaterial = this.material("blueWall", "#547f99");
-    const creamMaterial = this.material("creamWall", "#eee6d3");
-    const mintMaterial = this.material("mintWall", "#9eb9ad");
     const darkMaterial = this.material("doorShadow", "#254353");
     const trimMaterial = this.material("doorTrim", "#d9d0bc");
-    const ceilingMaterial = this.material("ceilingLight", "#fff1bd", true);
-
-    const floor = CreateGround("hospitalFloor", { width: CORRIDOR_WIDTH, height: CORRIDOR_LENGTH }, this.scene);
-    floor.position.z = CORRIDOR_LENGTH / 2;
-    floor.material = floorMaterial;
-    this.disposables.push(floor);
-
-    for (let z = 0; z <= CORRIDOR_LENGTH; z += 4) {
-      this.box(`floorSeamZ${z}`, { width: CORRIDOR_WIDTH, height: 0.018, depth: 0.045 }, new Vector3(0, 0.012, z), blueMaterial);
-    }
-    for (let x = -8; x <= 8; x += 4) {
-      this.box(`floorSeamX${x}`, { width: 0.045, height: 0.018, depth: CORRIDOR_LENGTH }, new Vector3(x, 0.012, CORRIDOR_LENGTH / 2), blueMaterial);
-    }
-
-    for (const side of [-1, 1] as const) {
-      const wallX = side * 9.75;
-      this.box(`blueWall${side}`, { width: 0.5, height: 2.2, depth: CORRIDOR_LENGTH }, new Vector3(wallX, 1.1, CORRIDOR_LENGTH / 2), blueMaterial);
-      this.box(`creamWall${side}`, { width: 0.5, height: 2.2, depth: CORRIDOR_LENGTH }, new Vector3(wallX, 3.3, CORRIDOR_LENGTH / 2), creamMaterial);
-      this.box(`mintWall${side}`, { width: 0.5, height: 1.9, depth: CORRIDOR_LENGTH }, new Vector3(wallX, 5.35, CORRIDOR_LENGTH / 2), mintMaterial);
-    }
-
-    this.box("endWallBlue", { width: CORRIDOR_WIDTH, height: 2.2, depth: 0.5 }, new Vector3(0, 1.1, CORRIDOR_LENGTH), blueMaterial);
-    this.box("endWallCream", { width: CORRIDOR_WIDTH, height: 4.1, depth: 0.5 }, new Vector3(0, 4.25, CORRIDOR_LENGTH), creamMaterial);
-
-    for (let z = 7; z < CORRIDOR_LENGTH; z += 10) {
-      this.box(`ceilingLight${z}`, { width: 5.5, height: 0.12, depth: 1.1 }, new Vector3(0, 6.9, z), ceilingMaterial);
-    }
-
+    // Corridor, props and furniture are authored in Blender (blender/build_hospital_assets.py).
+    LoadAssetContainerAsync(ASSETS.models.world, this.scene)
+      .then((container) => {
+        if (this.disposed) return container.dispose();
+        container.addAllToScene();
+        container.meshes.forEach((mesh) => { mesh.receiveShadows = true; });
+        this.disposables.push(container);
+      })
+      .catch((error) => console.error("[HospitalHub] world load failed", error));
     this.rooms.forEach((room) => this.buildRoom(room, darkMaterial, trimMaterial));
   }
 
@@ -307,14 +210,19 @@ export class HospitalHub {
   private roomSign(room: HubRoom) {
     const texture = new DynamicTexture(`roomSign${room.levelIndex}`, { width: 768, height: 180 }, this.scene, false);
     texture.hasAlpha = true;
-    const context = texture.getContext();
-    context.fillStyle = "#f4ead7";
-    context.fillRect(0, 0, 768, 180);
-    context.strokeStyle = room.tint;
-    context.lineWidth = 12;
-    context.strokeRect(8, 8, 752, 164);
-    texture.drawText(`LEVEL ${room.levelIndex + 1}`, null, 77, "bold 38px monospace", "#28444c", "#f4ead7", true, true);
-    texture.drawText(room.name.toUpperCase(), null, 132, "bold 27px monospace", "#28444c", null, true, true);
+    const paint = () => {
+      const context = texture.getContext();
+      context.fillStyle = "#f4ead7";
+      context.fillRect(0, 0, 768, 180);
+      context.strokeStyle = room.tint;
+      context.lineWidth = 12;
+      context.strokeRect(8, 8, 752, 164);
+      texture.drawText(`LEVEL ${room.levelIndex + 1}`, null, 77, `700 40px ${SIGN_FONT}`, "#28444c", "#f4ead7", true, true);
+      texture.drawText(room.name.toUpperCase(), null, 132, `600 28px ${SIGN_FONT}`, "#28444c", null, true, true);
+    };
+    paint();
+    // Repaint once the pixel font is ready; the first paint uses the fallback.
+    void document.fonts?.load(`700 40px ${SIGN_FONT}`).then(() => !this.disposed && paint()).catch(() => undefined);
     texture.updateSamplingMode(Texture.NEAREST_SAMPLINGMODE);
 
     const material = new StandardMaterial(`roomSignMaterial${room.levelIndex}`, this.scene);
@@ -363,6 +271,7 @@ export class HospitalHub {
       this.doctor.root.position.z = Math.min(Math.max(this.doctor.root.position.z, 1.5), CORRIDOR_LENGTH - 2.5);
     }
     this.doctor.update(dt, moving, x, z);
+    this.npcs.update(dt);
 
     const playerPosition = this.doctor.root.position;
     const closest = this.rooms.find((room) => {
@@ -387,9 +296,13 @@ export class HospitalHub {
   }
 
   dispose() {
+    this.disposed = true;
     window.removeEventListener("das-hub-move", this.onHubMove);
     this.input.dispose();
     this.doctor.dispose();
+    this.npcs.dispose();
+    this.library.dispose();
+    this.shadows.dispose();
     this.disposables.forEach((item) => item.dispose());
   }
 }

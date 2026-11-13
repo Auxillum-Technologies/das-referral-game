@@ -49,9 +49,9 @@
   --color-beacon-foreground: var(--beacon-foreground);
   --color-telemetry: var(--telemetry);
   --color-success: var(--success);
-  --font-display: "Space Grotesk", sans-serif;
-  --font-sans: "Manrope", sans-serif;
-  --font-mono: "JetBrains Mono", monospace;
+  --font-display: "Pixelify Sans", monospace;
+  --font-sans: "Pixelify Sans", monospace;
+  --font-mono: "Pixelify Sans", monospace;
 }
 
 :root {
@@ -134,7 +134,10 @@
   }
   body {
     @apply bg-background text-foreground;
-    font-family: "Manrope", sans-serif;
+    font-family: "Pixelify Sans", monospace;
+    text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.6);
+    letter-spacing: 0.02em;
+    -webkit-font-smoothing: none;
     background-image:
       linear-gradient(rgba(56, 189, 248, 0.025) 1px, transparent 1px),
       linear-gradient(90deg, rgba(56, 189, 248, 0.025) 1px, transparent 1px);
@@ -183,7 +186,7 @@
   }
 
   .font-display {
-    font-family: "Space Grotesk", sans-serif;
+    font-family: "Pixelify Sans", monospace;
   }
 
   /* Phone-first touch helpers */
@@ -206,7 +209,7 @@
   }
 
   .font-telemetry {
-    font-family: "JetBrains Mono", monospace;
+    font-family: "Pixelify Sans", monospace;
   }
 
   /* Hairline ruled panel (instrument look) */
@@ -257,3 +260,53 @@
     }
   }
 }
+
+/* Light clay-morphism surfaces for the patient encounter and feedback panels. */
+@layer components {
+  .clay-card {
+    background: linear-gradient(145deg, #f7f1ea, #e9e0d6);
+    color: #3b3340;
+    border-radius: 28px;
+    box-shadow:
+      12px 12px 28px rgba(150, 128, 112, 0.35),
+      -10px -10px 24px rgba(255, 255, 255, 0.9),
+      inset 2px 2px 4px rgba(255, 255, 255, 0.8),
+      inset -3px -3px 6px rgba(170, 148, 130, 0.18);
+  }
+  .clay-tile {
+    background: linear-gradient(145deg, #fbf6f0, #ece3d9);
+    border-radius: 20px;
+    box-shadow:
+      6px 6px 14px rgba(150, 128, 112, 0.28),
+      -5px -5px 12px rgba(255, 255, 255, 0.95),
+      inset 1px 1px 2px rgba(255, 255, 255, 0.8);
+  }
+  .clay-inset {
+    background: #e8dfd5;
+    border-radius: 16px;
+    box-shadow:
+      inset 4px 4px 9px rgba(150, 128, 112, 0.3),
+      inset -4px -4px 9px rgba(255, 255, 255, 0.9);
+  }
+  .clay-button {
+    border-radius: 20px;
+    box-shadow:
+      6px 6px 14px rgba(150, 128, 112, 0.32),
+      -5px -5px 12px rgba(255, 255, 255, 0.95),
+      inset 1px 1px 2px rgba(255, 255, 255, 0.7);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .clay-button:hover {
+    transform: translateY(-1px);
+  }
+  .clay-button:active {
+    transform: scale(0.98);
+    box-shadow:
+      inset 4px 4px 9px rgba(150, 128, 112, 0.35),
+      inset -3px -3px 7px rgba(255, 255, 255, 0.8);
+  }
+}
+
+/* PS2 text: pixel font everywhere, hard drop shadow; light clay panels get a white shadow instead. */
+button, input, select, textarea { font-family: inherit; }
+.clay-card, .clay-card * { text-shadow: 1px 1px 0 rgba(255, 255, 255, 0.85); }

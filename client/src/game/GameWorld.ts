@@ -1,11 +1,15 @@
 // GameWorld.ts — orchestrates one level of the hospital platformer.
-// Owns: orthographic camera, player, level, input, triage state machine.
+// Owns: perspective side-on camera, player, level, input, triage state machine.
 // Triage flow: player near bed → bridge.onPatientNear → dialog opens (player frozen) →
 // bridge.onAnswer → scored → dialog closes → next bed.
 
 import { Scene } from "@babylonjs/core/scene";
 import { FreeCamera } from "@babylonjs/core/Cameras/freeCamera";
 import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight";
+import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight";
+import { ShadowGenerator } from "@babylonjs/core/Lights/Shadows/shadowGenerator";
+import "@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent";
+import { CharacterLibrary } from "./hubCharacters";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Color4 } from "@babylonjs/core/Maths/math.color";
 import type { Level, Action } from "@/lib/patients";
@@ -15,10 +19,16 @@ import { InputManager } from "./InputManager";
 import type { SceneOptions, TriageBridge } from "./types";
 
 const TRIGGER_DIST = 2.1; // must stand beside active patient's rendered bed
-const CAMERA_OFFSET_Y = 5.5;
+const CAMERA_HEIGHT = 9;
+const CAMERA_Z = -14;
+const CAMERA_LOOK_Y = 1.8;
+const CAMERA_LOOK_Z = 8;
+const CAMERA_HALF_W = 9; // clamp so the view never runs past ward ends
 
 export class GameWorld {
   private camera: FreeCamera;
+  private shadows: ShadowGenerator;
+  private library: CharacterLibrary;
   private player: Player;
   private level: LevelBuilder;
   private input: InputManager;
@@ -43,28 +53,29 @@ export class GameWorld {
     const handlers: NonNullable<SceneOptions["touchHandlers"]> = { onMove: undefined, onJump: undefined };
     opts.touchHandlers = handlers;
 
-    // --- Camera: orthographic side-scroller ---
-    // Use engine render dimensions (canvas client size can be 0 at construction),
-    // falling back to 16:9.
-    this.camera = new FreeCamera("cam", new Vector3(0, CAMERA_OFFSET_Y, -10), scene);
-    this.camera.mode = FreeCamera.ORTHOGRAPHIC_CAMERA;
-    this.camera.orthoLeft = -10;
-    this.camera.orthoRight = 10;
-    this.camera.orthoTop = 7;
-    this.camera.orthoBottom = -7;
-    this.camera.setTarget(new Vector3(0, CAMERA_OFFSET_Y, 0));
+    // --- Camera: perspective, side-on, follows player along X ---
+    this.camera = new FreeCamera("cam", new Vector3(0, CAMERA_HEIGHT, CAMERA_Z), scene);
+    this.camera.fov = 0.8;
+    this.camera.minZ = 0.3;
+    this.camera.setTarget(new Vector3(0, CAMERA_LOOK_Y, CAMERA_LOOK_Z));
     scene.activeCamera = this.camera;
-    this.camera.attachControl(scene.getEngine().getRenderingCanvas()!, false);
     scene.clearColor = new Color4(0.05, 0.08, 0.12, 1);
 
-    // --- Light ---
+    // --- Lights ---
     const light = new HemisphericLight("ambientLight", new Vector3(0, 1, 0), scene);
     light.intensity = 1.0;
+    const sun = new DirectionalLight("wardSun", new Vector3(0.35, -1, 0.55), scene);
+    sun.position = new Vector3(0, 20, -10);
+    sun.intensity = 1.5;
+    this.shadows = new ShadowGenerator(1024, sun);
+    this.shadows.useBlurExponentialShadowMap = true;
+    this.shadows.blurKernel = 16;
 
     // --- Level + player ---
-    this.level = new LevelBuilder(scene, level, { tintHue: opts.tintHue, useTextures: true });
+    this.library = new CharacterLibrary(scene);
+    this.level = new LevelBuilder(scene, level, { tintHue: opts.tintHue, library: this.library, shadows: this.shadows });
     const startX = 2; // before first bed, so Case 1 opens only on approach
-    this.player = new Player(scene, this.level.floors, startX, this.level.floorY);
+    this.player = new Player(scene, this.level.floors, startX, this.level.floorY, this.library, this.shadows);
 
     // --- Input ---
     this.input = new InputManager();
@@ -78,19 +89,6 @@ export class GameWorld {
     scene.onBeforeRenderObservable.add(() => {
       const dt = Math.min(scene.getEngine().getDeltaTime() / 1000, 0.05);
       this.update(dt);
-      // Resize-safe ortho frustum: recompute while render sizes are still zero
-      const eng = scene.getEngine();
-      const w = eng.getRenderWidth();
-      const h = eng.getRenderHeight();
-      if (w > 0 && h > 0) {
-        const aspect = w / h;
-        const halfH = 7;
-        const halfW = halfH * aspect;
-        this.camera.orthoLeft = -halfW;
-        this.camera.orthoRight = halfW;
-        this.camera.orthoTop = halfH;
-        this.camera.orthoBottom = -halfH;
-      }
     });
   }
 
@@ -128,13 +126,11 @@ export class GameWorld {
     // Camera follow
     const targetX = this.player.root.position.x;
     this.camera.position.x += (targetX - this.camera.position.x) * 0.12;
-    const left = this.camera.orthoLeft ?? -10;
-    const right = this.camera.orthoRight ?? 10;
-    const camHalfW = (right - left) / 2;
-    const minX = camHalfW;
-    const maxX = this.level.width - camHalfW;
+    const minX = CAMERA_HALF_W;
+    const maxX = Math.max(minX, this.level.width - CAMERA_HALF_W);
     if (this.camera.position.x < minX) this.camera.position.x = minX;
     if (this.camera.position.x > maxX) this.camera.position.x = maxX;
+    this.camera.setTarget(new Vector3(this.camera.position.x, CAMERA_LOOK_Y, CAMERA_LOOK_Z));
 
     // Live telemetry
     this.bridge.onTelemetry?.({
@@ -189,12 +185,14 @@ export class GameWorld {
     this.score = 0;
     this.streak = 0;
     this.ended = false;
-    this.camera.position.x = start;
+    this.camera.position.x = Math.max(start, CAMERA_HALF_W);
   }
 
   dispose() {
     this.input.dispose();
     this.level.dispose();
     this.player.dispose();
+    this.shadows.dispose();
+    this.library.dispose();
   }
 }

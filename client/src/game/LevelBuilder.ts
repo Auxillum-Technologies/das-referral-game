@@ -4,9 +4,12 @@
 
 import { Scene } from "@babylonjs/core/scene";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
-import { CreatePlane } from "@babylonjs/core/Meshes/Builders/planeBuilder";
-import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
-import { Texture } from "@babylonjs/core/Materials/Textures/texture";
+import "@babylonjs/loaders/glTF";
+import { LoadAssetContainerAsync } from "@babylonjs/core/Loading/sceneLoader";
+import type { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial";
+import { Color3 } from "@babylonjs/core/Maths/math.color";
+import type { ShadowGenerator } from "@babylonjs/core/Lights/Shadows/shadowGenerator";
+import type { CharacterLibrary } from "./hubCharacters";
 import type { Level, Patient } from "@/lib/patients";
 import { ASSETS } from "./assets";
 import type { Rect } from "./Player";
@@ -21,10 +24,7 @@ export interface BuiltBed {
 const UNIT = 12; // world units per patient room
 const FLOOR_Y = -1.2;
 const BG_TILE_WIDTH = 60;
-// Preserve generated 1774 × 887 background ratio.
-const BG_HEIGHT = BG_TILE_WIDTH * (887 / 1774);
 // Frame lower ward section: full beds, wheels, and walkable platform stay visible.
-const BG_CENTER_Y = 7.8;
 const BED_X_IN_TILE = [7.4, 18.4, 29.15, 40.05, 51.1] as const;
 
 export class LevelBuilder {
@@ -35,37 +35,17 @@ export class LevelBuilder {
   readonly floorY = FLOOR_Y;
 
   private useTextures: boolean;
+  private disposed = false;
   constructor(
     private scene: Scene,
     level: Level,
-    opts: { tintHue?: number; useTextures?: boolean } = {},
+    opts: { tintHue?: number; useTextures?: boolean; library?: CharacterLibrary; shadows?: ShadowGenerator } = {},
   ) {
     this.useTextures = opts.useTextures ?? true;
     this.width = level.patients.length * UNIT + 14;
 
-    // --- Background corridor (tiled, full length) ---
-    const bgMat = new StandardMaterial("bgMat", scene);
-    if (opts.useTextures) {
-      const backgroundIndex = Math.min(Math.max(level.id - 1, 0), ASSETS.levelBackgrounds.length - 1);
-      const bgTex = new Texture(ASSETS.levelBackgrounds[backgroundIndex], scene);
-      bgTex.wrapU = Texture.WRAP_ADDRESSMODE;
-      // Ward source has five visible beds. One bay maps to one 12-unit case.
-      bgTex.uScale = Math.max(1, this.width / BG_TILE_WIDTH);
-      bgTex.vScale = 1;
-      bgMat.diffuseTexture = bgTex;
-      bgMat.emissiveTexture = bgTex;
-    } else {
-      bgMat.diffuseColor.set(0.25, 0.32, 0.42);
-    }
-    bgMat.emissiveColor.setAll(1);
-    bgMat.specularColor.setAll(0);
-    bgMat.disableLighting = true;
-    bgMat.backFaceCulling = false;
-    const bg = CreatePlane("bg", { width: this.width, height: BG_HEIGHT }, scene);
-    bg.position.set(this.width / 2, BG_CENTER_Y, 40);
-    bg.material = bgMat;
-    // Generated backgrounds carry their own level-specific palettes.
-    bgMat.emissiveColor.setAll(1);
+    // --- Blender ward bays, tiled along +X ---
+    void this.loadWard(opts.tintHue, opts.shadows);
 
     // Solid continuous walkable hospital floor across the entire corridor length
     this.floors = [{ x: 0, y: FLOOR_Y, w: this.width, h: 4 }];
@@ -78,14 +58,52 @@ export class LevelBuilder {
       this.beds.push(this.placeBed(p, x, i));
     }
 
-    // --- End wall with amber exit beacon ---
-    const endMat = new StandardMaterial("endMat", this.scene);
-    endMat.emissiveColor.set(0.45, 0.3, 0.05);
-    endMat.backFaceCulling = false;
+    // --- Lying patient in each case bed ---
+    if (opts.library) {
+      this.beds.forEach((bed, i) => {
+        const root = new TransformNode(`bedPatient${i}`, scene);
+        root.position.set(bed.x, FLOOR_Y + 1.45, 7.1);
+        root.rotation.set(-Math.PI / 2, Math.PI, 0);
+        root.scaling.setAll(0.85);
+        this.disposables.push(root);
+        opts.library!.spawn("patient", root, opts.shadows)
+          .then((animator) => {
+            if (!animator) return;
+            if (this.disposed) return animator.dispose();
+            animator.play("idle", 0.5 + (i % 3) * 0.1);
+            this.disposables.push(animator);
+          })
+          .catch((error) => console.error("[LevelBuilder] patient load failed", error));
+      });
+    }
+  }
 
-    const endWall = CreatePlane("endWall", { width: 2, height: BG_HEIGHT }, scene);
-    endWall.position.set(this.width - 2, BG_CENTER_Y, 30);
-    endWall.material = endMat;
+  private async loadWard(tintHue: number | undefined, shadows?: ShadowGenerator) {
+    try {
+      const container = await LoadAssetContainerAsync(ASSETS.models.wardBay, this.scene);
+      if (this.disposed) return container.dispose();
+      this.disposables.push(container);
+      const bays = Math.ceil(this.width / BG_TILE_WIDTH);
+      // One extra bay at each end so the camera never sees past the ward.
+      for (let b = -1; b <= bays; b++) {
+        const entries = container.instantiateModelsToScene((name) => `ward${b}_${name}`, false);
+        entries.rootNodes.forEach((node) => {
+          (node as TransformNode).position.set(b * BG_TILE_WIDTH, FLOOR_Y, 0);
+          node.getChildMeshes().forEach((mesh) => {
+            mesh.receiveShadows = true;
+            shadows?.addShadowCaster(mesh);
+          });
+        });
+        this.disposables.push(entries);
+      }
+      // Per-level wall tint keeps levels distinct.
+      const hue = tintHue ?? 200;
+      this.scene.materials
+        .filter((m) => m.name.endsWith("wardWallTint"))
+        .forEach((m) => ((m as PBRMaterial).albedoColor = Color3.FromHSV(hue, 0.16, 0.9).toLinearSpace()));
+    } catch (error) {
+      console.error("[LevelBuilder] ward load failed", error);
+    }
   }
 
   private placeDoor(_x: number, _flip: boolean) {
@@ -103,6 +121,7 @@ export class LevelBuilder {
   }
 
   dispose() {
+    this.disposed = true;
     for (const d of this.disposables) d.dispose();
   }
 }

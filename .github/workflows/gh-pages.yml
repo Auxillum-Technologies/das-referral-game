@@ -31,7 +31,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build for GitHub Pages (repo-scoped base path)
-        run: BASE_URL="/das-referral-game/" pnpm build
+        run: BASE_URL="/${GITHUB_REPOSITORY#*/}/" pnpm build
 
       - uses: actions/upload-pages-artifact@v3
         with:

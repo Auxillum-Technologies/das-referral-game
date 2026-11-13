@@ -17,8 +17,14 @@ importers:
   .:
     dependencies:
       '@babylonjs/core':
-        specifier: ^9.20.0
-        version: 9.20.0
+        specifier: ^9.35.0
+        version: 9.35.0
+      '@babylonjs/loaders':
+        specifier: ^9.35.0
+        version: 9.35.0(@babylonjs/core@9.35.0)(babylonjs-gltf2interface@9.35.0)
+      '@fontsource/pixelify-sans':
+        specifier: ^5.3.0
+        version: 5.3.0
       '@hookform/resolvers':
         specifier: ^5.2.2
         version: 5.2.2(react-hook-form@7.64.0(react@19.2.1))
@@ -100,6 +106,9 @@ importers:
       '@radix-ui/react-tooltip':
         specifier: ^1.2.8
         version: 1.2.8(@types/react-dom@19.2.1(@types/react@19.2.1))(@types/react@19.2.1)(react-dom@19.2.1(react@19.2.1))(react@19.2.1)
+      animejs:
+        specifier: ^4.5.0
+        version: 4.5.0
       axios:
         specifier: ^1.12.0
         version: 1.12.2
@@ -335,8 +344,14 @@ packages:
     resolution: {integrity: sha512-bkFqkLhh3pMBUQQkpVgWDWq/lqzc2678eUyDlTBhRqhCHFguYYGM0Efga7tYk4TogG/3x0EEl66/OQ+WGbWB/Q==}
     engines: {node: '>=6.9.0'}
 
-  '@babylonjs/core@9.20.0':
-    resolution: {integrity: sha512-iWM/Re+FnqTEOxkGxvjRjChcPZzydcb0OGtnVk5o0vDQizqwkcpWFlJzfIv1Ij7Li2edJJJDZd6jRzC8QSWuuw==}
+  '@babylonjs/core@9.35.0':
+    resolution: {integrity: sha512-qY2uU4gVC1GA7vPfLtnF57bPBBuu5nGnh9efGZVWtba9naxeeH+Nkj919vEFhoBvmiDxbRXMOBKLp/wWC0YzYA==}
+
+  '@babylonjs/loaders@9.35.0':
+    resolution: {integrity: sha512-glYCpmSCukBcWMziRsxOI1hTDeCxa6/kqfDSRfej7MsD9N+dnZfZTd3+ReHpQe4F33v5/PoSTt3grN/pA0bXFg==}
+    peerDependencies:
+      '@babylonjs/core': ^9.0.0
+      babylonjs-gltf2interface: ^9.0.0
 
   '@braintree/sanitize-url@7.1.1':
     resolution: {integrity: sha512-i1L7noDNxtFyL5DmZafWy1wRVhGehQmzZaz1HiN5e7iylJMSZR7ekOV7NsIqa5qBldlLrsKv4HbgFUVlQrz8Mw==}
@@ -675,6 +690,9 @@ packages:
 
   '@floating-ui/utils@0.2.10':
     resolution: {integrity: sha512-aGTxbpbg8/b5JfU1HXSrbH3wXZuLPJcNEcZQFMxLs3oSzgtVu6nFPkbbGGUvBcUjKV2YyB9Wxxabo+HEH9tcRQ==}
+
+  '@fontsource/pixelify-sans@5.3.0':
+    resolution: {integrity: sha512-4RCe9nXbi7wUu5+H0FNX1sgPZ2kJ1MmY1uTkEfvQIzzqhoS8zGKJaJfdK8oreE0OU+5gM+NdurFi3H3FJRBvyw==}
 
   '@hookform/resolvers@5.2.2':
     resolution: {integrity: sha512-A/IxlMLShx3KjV/HeTcTfaMxdwy690+L/ZADoeaTltLx+CVuzkeVIPuybK3jrRfw7YZnmdKsVVHAlEPIAEUNlA==}
@@ -1793,6 +1811,17 @@ packages:
   add@2.0.6:
     resolution: {integrity: sha512-j5QzrmsokwWWp6kUcJQySpbG+xfOBqqKnup3OIk1pz+kB/80SLorZ9V8zHFLO92Lcd+hbvq8bT+zOGoPkmBV0Q==}
 
+  animejs@4.5.0:
+    resolution: {integrity: sha512-NQimYX+lz8WaXonGS9zVVoviCIAjONeJayxacUditaivYLqyXgGjFKjuyl0aUUhFKm5MriX9ty1TGovNzoJQWA==}
+    peerDependencies:
+      '@types/three': '>=0.150.0'
+      three: '>=0.150.0'
+    peerDependenciesMeta:
+      '@types/three':
+        optional: true
+      three:
+        optional: true
+
   aria-hidden@1.2.6:
     resolution: {integrity: sha512-ik3ZgC9dY/lYVVM++OISsaYDeg1tb0VtP5uL3ouh1koGOaUMDPpbFIei4JkFimWUFPn90sbMNMXQAIVOlnYKJA==}
     engines: {node: '>=10'}
@@ -1816,6 +1845,9 @@ packages:
 
   axios@1.12.2:
     resolution: {integrity: sha512-vMJzPewAlRyOgxV2dU0Cuz2O8zzzx9VYtbJOaBgXFeLc4IV/Eg50n4LowmehOOR61S8ZMpc2K5Sa7g6A4jfkUw==}
+
+  babylonjs-gltf2interface@9.35.0:
+    resolution: {integrity: sha512-A3W2LYIfncj3q5MTEn7CO0zBih9ZCIaSZu81X5oecaGBefIyFoJnNcbiqFlId6jBuAZ4a9hYYY/nqQMZrcMVPw==}
 
   bail@2.0.2:
     resolution: {integrity: sha512-0xO6mYd7JB2YesxDKplafRpsiOzPt9V02ddPCLbY1xYGPOX24NTyN50qnUxgCPcSoYMhKpAuBTjQoRZCAkUDRw==}
@@ -3667,7 +3699,12 @@ snapshots:
       '@babel/helper-string-parser': 7.27.1
       '@babel/helper-validator-identifier': 7.27.1
 
-  '@babylonjs/core@9.20.0': {}
+  '@babylonjs/core@9.35.0': {}
+
+  '@babylonjs/loaders@9.35.0(@babylonjs/core@9.35.0)(babylonjs-gltf2interface@9.35.0)':
+    dependencies:
+      '@babylonjs/core': 9.35.0
+      babylonjs-gltf2interface: 9.35.0
 
   '@braintree/sanitize-url@7.1.1': {}
 
@@ -3864,6 +3901,8 @@ snapshots:
       react-dom: 19.2.1(react@19.2.1)
 
   '@floating-ui/utils@0.2.10': {}
+
+  '@fontsource/pixelify-sans@5.3.0': {}
 
   '@hookform/resolvers@5.2.2(react-hook-form@7.64.0(react@19.2.1))':
     dependencies:
@@ -5038,6 +5077,8 @@ snapshots:
 
   add@2.0.6: {}
 
+  animejs@4.5.0: {}
+
   aria-hidden@1.2.6:
     dependencies:
       tslib: 2.8.1
@@ -5065,6 +5106,8 @@ snapshots:
       proxy-from-env: 1.1.0
     transitivePeerDependencies:
       - debug
+
+  babylonjs-gltf2interface@9.35.0: {}
 
   bail@2.0.2: {}
 
